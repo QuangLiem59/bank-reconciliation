@@ -1,0 +1,260 @@
+services:
+  keyfile-generator:
+    image: mongo:6.0
+    container_name: keyfile-generator
+    volumes:
+      - mongodb_keyfile:/tmp/keyfile-volume
+    command: >
+      bash -c "
+        if [ ! -f /tmp/keyfile-volume/mongodb-keyfile ]; then
+          echo 'Generating MongoDB keyfile...';
+          openssl rand -base64 756 > /tmp/keyfile-volume/mongodb-keyfile;
+          chmod 400 /tmp/keyfile-volume/mongodb-keyfile;
+          chown 999:999 /tmp/keyfile-volume/mongodb-keyfile;
+          echo 'Keyfile generated successfully';
+        else
+          echo 'Keyfile already exists';
+        fi
+      "
+    networks:
+      - bank-network
+
+  mongodb1:
+    image: mongo:6.0
+    container_name: mongodb1
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - mongodb1_data:/data/db
+      - mongodb_keyfile:/tmp/keyfile-volume:ro
+      - ./scripts:/scripts:ro
+    networks:
+      - bank-network
+    depends_on:
+      - keyfile-generator
+    command: >
+      bash -c "
+        until [ -f /tmp/keyfile-volume/mongodb-keyfile ]; do
+          echo 'Waiting for keyfile...';
+          sleep 2;
+        done;
+        echo 'Starting MongoDB with replica set...';
+        exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --keyFile /tmp/keyfile-volume/mongodb-keyfile
+      "
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  mongodb2:
+    image: mongo:6.0
+    container_name: mongodb2
+    restart: unless-stopped
+    ports:
+      - '27018:27017'
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - mongodb2_data:/data/db
+      - mongodb_keyfile:/tmp/keyfile-volume:ro
+    networks:
+      - bank-network
+    depends_on:
+      - keyfile-generator
+    command: >
+      bash -c "
+        until [ -f /tmp/keyfile-volume/mongodb-keyfile ]; do
+          echo 'Waiting for keyfile...';
+          sleep 2;
+        done;
+        echo 'Starting MongoDB with replica set...';
+        exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --keyFile /tmp/keyfile-volume/mongodb-keyfile
+      "
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  mongodb3:
+    image: mongo:6.0
+    container_name: mongodb3
+    restart: unless-stopped
+    ports:
+      - '27019:27017'
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - mongodb3_data:/data/db
+      - mongodb_keyfile:/tmp/keyfile-volume:ro
+    networks:
+      - bank-network
+    depends_on:
+      - keyfile-generator
+    command: >
+      bash -c "
+        until [ -f /tmp/keyfile-volume/mongodb-keyfile ]; do
+          echo 'Waiting for keyfile...';
+          sleep 2;
+        done;
+        echo 'Starting MongoDB with replica set...';
+        exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --keyFile /tmp/keyfile-volume/mongodb-keyfile
+      "
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  replica-set-init:
+    image: mongo:6.0
+    container_name: replica-set-init
+    networks:
+      - bank-network
+    volumes:
+      - ./scripts:/scripts:ro
+    depends_on:
+      mongodb1:
+        condition: service_healthy
+      mongodb2:
+        condition: service_healthy
+      mongodb3:
+        condition: service_healthy
+    command: >
+      bash -c "
+        echo 'Waiting for MongoDB instances to be ready...';
+        sleep 20;
+        
+        echo 'Initializing replica set...';
+        mongosh --host mongodb1:27017 --username admin --password password --authenticationDatabase admin --file /scripts/init-replica-set.js;
+        
+        echo 'Replica set initialization completed successfully!';
+      "
+    restart: 'no'
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: bank-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - bank-network
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # Application Services
+  api-gateway:
+    build:
+      context: .
+      dockerfile: src/apps/api-gateway/Dockerfile
+    container_name: bank-api-gateway
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    env_file:
+      - .env
+    depends_on:
+      replica-set-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks:
+      - bank-network
+
+  transaction-service:
+    build:
+      context: .
+      dockerfile: src/apps/transaction-service/Dockerfile
+    container_name: bank-transaction-service
+    restart: unless-stopped
+    ports:
+      - '3002:3002'
+    env_file:
+      - .env
+    depends_on:
+      replica-set-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks:
+      - bank-network
+
+  file-processing-service:
+    build:
+      context: .
+      dockerfile: src/apps/file-processing-service/Dockerfile
+    container_name: bank-file-processing-service
+    restart: unless-stopped
+    ports:
+      - '3003:3003'
+    env_file:
+      - .env
+    depends_on:
+      replica-set-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks:
+      - bank-network
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: src/apps/notification-service/Dockerfile
+    container_name: bank-notification-service
+    restart: unless-stopped
+    ports:
+      - '3004:3004'
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    networks:
+      - bank-network
+
+  # Bull Dashboard for Queue Management
+  bull-dashboard:
+    image: deadly0/bull-board
+    container_name: bank-bull-dashboard
+    restart: unless-stopped
+    ports:
+      - '3005:3000'
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ''
+      REDIS_DB: 0
+    depends_on:
+      - redis
+    networks:
+      - bank-network
+
+volumes:
+  mongodb1_data:
+  mongodb2_data:
+  mongodb3_data:
+  mongodb_keyfile:
+  redis_data:
+    driver: local
+
+networks:
+  bank-network:
+    driver: bridge

@@ -1,0 +1,273 @@
+# name: Bank Reconciliation System
+
+# on:
+#   push:
+#     branches: [test, master]
+#   pull_request:
+#     branches: [test, master]
+
+# jobs:
+#   build-and-test:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v3
+
+#       - name: Setup Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: '20'
+#           cache: 'npm'
+
+#       - name: Cache node modules
+#         uses: actions/cache@v3
+#         id: cache-nodemodules
+#         with:
+#           path: node_modules
+#           key: ${{ runner.os }}-nodemodules-${{ hashFiles('**/package-lock.json') }}
+#           restore-keys: |
+#             ${{ runner.os }}-nodemodules-
+
+#       - name: Install dependencies
+#         if: steps.cache-nodemodules.outputs.cache-hit != 'true'
+#         run: npm ci
+
+#       - name: Lint
+#         run: npm run lint
+#         continue-on-error: true
+
+#       # - name: Run tests
+#       #   run: npm run test
+
+#       - name: Build
+#         run: npm run build
+
+#       # Upload the build artifacts for use in other jobs
+#       - name: Upload build artifacts
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: bank-reconciliation-system-build
+#           path: |
+#             dist
+#             pino-pretty-transport.js
+#             package*.json
+#           retention-days: 1
+
+#   docker-build-and-push:
+#     needs: build-and-test
+#     runs-on: ubuntu-latest
+#     if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/test'
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v3
+#         with:
+#           sparse-checkout: |
+#             Dockerfile
+#             docker-compose.yml
+#           sparse-checkout-cone-mode: false
+
+#       # Download the build artifacts from previous job
+#       - name: Download build artifacts
+#         uses: actions/download-artifact@v4
+#         with:
+#           name: bank-reconciliation-system-build
+#           path: .
+
+#       - name: Get short SHA
+#         id: shortsha
+#         run: echo "sha=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+#       - name: Create optimized Dockerfile
+#         run: |
+#           cat > Dockerfile.optimized << EOF
+
+#           FROM node:22-alpine
+
+#           # Set the working directory inside the container
+#           WORKDIR /app
+
+#           # Copy package files and pre-built dist folder
+#           COPY package*.json ./
+#           COPY pino-pretty-transport.js ./
+#           COPY dist ./dist
+
+#           # Install only production dependencies
+#           RUN npm ci --only=production
+
+#           # Add health check endpoint
+#           HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+#           CMD wget --spider -q http://localhost:3001/health || exit 1
+
+#           # Expose the application port
+#           EXPOSE 3001
+
+#           # Command to run the application
+#           CMD ["node", "dist/main"]
+#           EOF
+
+#       - name: Set up Docker Buildx
+#         uses: docker/setup-buildx-action@v3
+
+#       - name: Login to DockerHub
+#         uses: docker/login-action@v3
+#         with:
+#           username: ${{ secrets.DOCKERHUB_USERNAME }}
+#           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+#       - name: Build and push Docker image
+#         uses: docker/build-push-action@v5
+#         with:
+#           context: .
+#           file: ./Dockerfile.optimized
+#           push: true
+#           tags: ${{ secrets.DOCKERHUB_USERNAME }}/bns-api:latest,${{ secrets.DOCKERHUB_USERNAME }}/bns-api:${{ steps.shortsha.outputs.sha }}
+#           cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/bns-api:buildcache
+#           cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/bns-api:buildcache,mode=max
+
+#   deploy:
+#     needs: docker-build-and-push
+#     runs-on: ubuntu-latest
+
+#     strategy:
+#       matrix:
+#         include:
+#           - server:
+#               server_id: 'production'
+#               host_key: 'DEPLOY_HOST'
+#               path: '/home/ubuntu/bns/prod'
+#               username_key: 'DEPLOY_USER'
+#               ssh_key_name: 'DEPLOY_SSH_KEY'
+#               env_file_key: 'ENV_FILE_PRODUCTION'
+#               port: 3001
+#               container_name: 'bns-production'
+#             branch: 'refs/heads/master'
+#           - server:
+#               server_id: 'staging'
+#               host_key: 'DEPLOY_HOST_STAGING'
+#               path: '/home/ubuntu/bns/staging'
+#               username_key: 'DEPLOY_USER_STAGING'
+#               ssh_key_name: 'DEPLOY_SSH_KEY_STAGING'
+#               env_file_key: 'ENV_FILE_STAGING'
+#               port: 3002
+#               container_name: 'bns-staging'
+#             branch: 'refs/heads/test'
+#       max-parallel: 1 # Force sequential execution
+#       fail-fast: false # Continue with other deployments even if one fails
+
+#     steps:
+#       - name: Validate branch
+#         id: validate
+#         run: |
+#           if [ "${{ github.ref }}" != "${{ matrix.branch }}" ]; then
+#             echo "Skipping deployment for ${{ matrix.server.server_id }} on branch ${{ github.ref }}"
+#             echo "should_deploy=false" >> $GITHUB_OUTPUT
+#           else
+#             echo "Proceeding with deployment for ${{ matrix.server.server_id }}"
+#             echo "should_deploy=true" >> $GITHUB_OUTPUT
+#           fi
+
+#       - name: Checkout deployment files
+#         if: steps.validate.outputs.should_deploy == 'true'
+#         uses: actions/checkout@v4
+#         with:
+#           sparse-checkout: |
+#             docker-compose.yml
+#           sparse-checkout-cone-mode: false
+
+#       - name: Get short SHA
+#         if: steps.validate.outputs.should_deploy == 'true'
+#         id: shortsha
+#         run: echo "sha=$(echo ${GITHUB_SHA} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+#       - name: Create deployment files
+#         if: steps.validate.outputs.should_deploy == 'true'
+#         run: |
+#           cat > .env << EOF
+#           PORT=3001
+#           DOCKER_REGISTRY=
+#           DOCKER_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}/
+#           TAG=${{ steps.shortsha.outputs.sha }}
+#           CPU_LIMIT=0.5
+#           MEMORY_LIMIT=512M
+#           SERVER_ID=${{ matrix.server.server_id }}
+#           $(echo "${{ secrets.ENV_FILE }}")
+#           $(if [ "${{ matrix.server.server_id }}" = "staging" ] && [ -n "${{ secrets[matrix.server.env_file_key] }}" ]; then echo "${{ secrets[matrix.server.env_file_key] }}"; fi)
+#           $(if [ "${{ matrix.server.server_id }}" = "production" ] && [ -n "${{ secrets[matrix.server.env_file_key] }}" ]; then echo "${{ secrets[matrix.server.env_file_key] }}"; fi)
+#           EOF
+
+#       - name: Set up Docker auth on server
+#         if: steps.validate.outputs.should_deploy == 'true'
+#         uses: appleboy/ssh-action@v1.0.3
+#         with:
+#           host: ${{ secrets[matrix.server.host_key] }}
+#           username: ${{ secrets[matrix.server.username_key] }}
+#           key: ${{ secrets[matrix.server.ssh_key_name] }}
+#           script: |
+#             mkdir -p ~/.docker
+#             echo '{"auths":{"https://index.docker.io/v1/":{"auth":"'$(echo -n "${{ secrets.DOCKERHUB_USERNAME }}:${{ secrets.DOCKERHUB_TOKEN }}" | base64)'"}}}' > ~/.docker/config.json
+
+#       - name: Deploy to ${{ matrix.server.server_id }} server
+#         if: steps.validate.outputs.should_deploy == 'true'
+#         uses: appleboy/ssh-action@v1.0.3
+#         with:
+#           host: ${{ secrets[matrix.server.host_key] }}
+#           username: ${{ secrets[matrix.server.username_key] }}
+#           key: ${{ secrets[matrix.server.ssh_key_name] }}
+#           script: |
+#             mkdir -p ${{ matrix.server.path }}
+
+#       - name: Copy docker-compose.yml and .env to ${{ matrix.server.server_id }} server
+#         if: steps.validate.outputs.should_deploy == 'true'
+#         uses: appleboy/scp-action@v0.1.7
+#         with:
+#           host: ${{ secrets[matrix.server.host_key] }}
+#           username: ${{ secrets[matrix.server.username_key] }}
+#           key: ${{ secrets[matrix.server.ssh_key_name] }}
+#           source: 'docker-compose.yml,.env'
+#           target: '${{ matrix.server.path }}'
+
+#       - name: Start services on ${{ matrix.server.server_id }}
+#         if: steps.validate.outputs.should_deploy == 'true'
+#         uses: appleboy/ssh-action@v1.0.3
+#         with:
+#           host: ${{ secrets[matrix.server.host_key] }}
+#           username: ${{ secrets[matrix.server.username_key] }}
+#           key: ${{ secrets[matrix.server.ssh_key_name] }}
+#           script: |
+#             cd ${{ matrix.server.path }}
+#             export DOCKER_USERNAME=${{ secrets.DOCKERHUB_USERNAME }}/
+#             export TAG=${{ steps.shortsha.outputs.sha }}
+#             export SERVER_ID=${{ matrix.server.server_id }}
+#             export PORT=${{ matrix.server.port }}
+#             export CONTAINER_NAME=${{ matrix.server.container_name }}
+
+#             docker compose pull
+#             docker compose down --remove-orphans
+#             docker compose up -d
+#             docker system prune -af --volumes
+
+#       - name: Verify ${{ matrix.server.server_id }} deployment
+#         if: steps.validate.outputs.should_deploy == 'true'
+#         uses: appleboy/ssh-action@v1.0.3
+#         with:
+#           host: ${{ secrets[matrix.server.host_key] }}
+#           username: ${{ secrets[matrix.server.username_key] }}
+#           key: ${{ secrets[matrix.server.ssh_key_name] }}
+#           script: |
+#             cd ${{ matrix.server.path }}
+#             # Wait for container to be healthy
+#             timeout=180
+#             while [ $timeout -gt 0 ]; do
+#               if docker compose ps | grep -q "healthy"; then
+#                 echo "Deployment successful and healthy on ${{ matrix.server.server_id }}!"
+#                 exit 0
+#               fi
+#               echo "Waiting for container to be healthy... ($timeout seconds left)"
+#               sleep 10
+#               timeout=$((timeout-10))
+#             done
+#             echo "Deployment verification failed on ${{ matrix.server.server_id }}!"
+#             docker compose logs
+#             exit 1

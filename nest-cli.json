@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "src/apps/api-gateway/src",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "tsConfigPath": "src/apps/api-gateway/tsconfig.app.json",
+    "assets": [
+      {
+        "include": "mail/templates/**/*",
+        "outDir": "dist"
+      }
+    ]
+  },
+  "monorepo": true,
+  "root": "src/apps/api-gateway",
+  "projects": {
+    "api-gateway": {
+      "type": "application",
+      "root": "src/apps/api-gateway",
+      "entryFile": "apps/api-gateway/src/main",
+      "sourceRoot": "src/apps/api-gateway/src",
+      "compilerOptions": {
+        "tsConfigPath": "src/apps/api-gateway/tsconfig.app.json"
+      }
+    },
+    "transaction-service": {
+      "type": "application",
+      "root": "src/apps/transaction-service",
+      "entryFile": "apps/transaction-service/src/main",
+      "sourceRoot": "src/apps/transaction-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "src/apps/transaction-service/tsconfig.app.json"
+      }
+    },
+    "file-processing-service": {
+      "type": "application",
+      "root": "src/apps/file-processing-service",
+      "entryFile": "apps/file-processing-service/src/main",
+      "sourceRoot": "src/apps/file-processing-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "src/apps/file-processing-service/tsconfig.app.json"
+      }
+    },
+    "notification-service": {
+      "type": "application",
+      "root": "src/apps/notification-service",
+      "entryFile": "apps/notification-service/src/main",
+      "sourceRoot": "src/apps/notification-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "src/apps/notification-service/tsconfig.app.json"
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "../../../dist/src/apps/api-gateway",
+    "rootDir": "../../../src",
+    "paths": {
+      "@modules/*": ["src/apps/api-gateway/src/modules/*"],
+      "@configs/*": ["src/configs/*"],
+      "@repositories/*": ["src/repositories/*"],
+      "@entities/*": ["src/entities/*"],
+      "@services/*": ["src/services/*"],
+      "@transformers/*": ["src/transformers/*"]
+    }
+  },
+  "exclude": ["**/*.spec.ts", "**/*.test.ts", "test", "dist", "node_modules"],
+  "include": ["src/**/*", "../../types/**/*", "../../logger/**/*"]
+}

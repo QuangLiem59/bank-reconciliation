@@ -1,0 +1,13 @@
+// .vscode/settings.json
+{
+  // Tự động định dạng mã khi lưu với Prettier
+  "editor.formatOnSave": true,
+
+  // Tự động sửa lỗi ESLint khi lưu (sử dụng source.fixAll)
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+
+  // Thiết lập Prettier làm công cụ định dạng mặc định
+  "editor.defaultFormatter": "esbenp.prettier-vscode"
+}
