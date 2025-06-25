@@ -189,8 +189,8 @@ docker-compose up -d
 ### Prerequisites
 
 ```bash
-BASE_URL="https://your-api-domain.com/api"
-JWT_TOKEN="your-jwt-token-here"
+BASE_URL="http://localhost:3000"
+JWT_TOKEN="your-jwt-token-here" // replace with a valid JWT token after authentication
 ```
 
 ### 1. User Authentication
