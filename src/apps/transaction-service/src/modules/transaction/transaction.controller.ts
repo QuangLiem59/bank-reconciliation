@@ -1,5 +1,5 @@
 import { Transaction } from '@entities/transaction.entity';
-import { Controller } from '@nestjs/common';
+import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import {
   FindAllResponse,
@@ -15,11 +15,13 @@ import { TransactionTransformer } from './transformers/transaction.transformer';
 @Controller()
 export class TransactionController {
   constructor(private readonly transactionService: TransactionService) {}
+  private readonly logger = new Logger(TransactionController.name);
 
   @MessagePattern('create_transactions')
   async createTransactions(
     @Payload() data: CreateTransactionDto[],
   ): Promise<Transaction[]> {
+    this.logger.log(`Creating transactions: data length = ${data.length}`);
     return this.transactionService.createTransactions(data);
   }
 

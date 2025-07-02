@@ -247,6 +247,7 @@ export class FileProcessingService extends BaseServiceAbstract<FileProcessing> {
         failedRecords: uploadData.failedRecords,
         uploadedAt: uploadData.created_at,
         processedAt: uploadData.processedAt,
+        updatedAt: uploadData.updated_at,
         fileSize: uploadData.fileSize,
         fileType: uploadData.fileType,
       };

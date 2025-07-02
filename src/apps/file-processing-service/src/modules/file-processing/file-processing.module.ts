@@ -47,6 +47,10 @@ import { FileProcessingProcessor } from './processors/file-processing.processor'
     ]),
     BullModule.registerQueue({
       name: 'file-processing',
+      settings: {
+        stalledInterval: 30 * 1000,
+        maxStalledCount: 1,
+      },
     }),
   ],
   providers: [
